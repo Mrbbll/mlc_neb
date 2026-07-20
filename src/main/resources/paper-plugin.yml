@@ -1,0 +1,43 @@
+# ============================================================================
+# mlc_neb — Not Enough Bandwidth — Paper 插件元数据
+# ============================================================================
+#
+# 本插件是 NEB 模组的 Paper 服务端移植版。
+# 配合客户端 NeoForge 模组 "NotEnoughBandwidth" 使用。
+# 客户端模组路径: D:\desktop\plugins\mlc_neb\NotEnoughBandwidth
+#
+# 协议兼容:
+#   - 聚合包类型: neb:packet_aggregation_packet (与客户端 NEB 模组一致)
+#   - 握手检测:   neb:handshake (由本插件独有，用于检测客户端是否安装 NEB)
+#   - Zstd 压缩:   magicless 模式，上下文复用
+# ============================================================================
+
+name: mlc_neb
+version: '1.0-SNAPSHOT'
+main: org.mlc.mlc_neb.MlcNeb
+api-version: '1.21'
+authors: [ Mr_bl ]
+description: "网络带宽优化插件，NEB Paper 移植版。聚合+Zstd压缩、延迟区块缓存、流量统计。"
+
+# 注册的命令
+commands:
+  neb:
+    description: NEB 插件管理和流量统计
+    usage: /neb <stats|reload|enable|disable|list|version|reset>
+    aliases: [ notenoughbandwidth ]
+    permission: mlc_neb.command
+
+# 权限节点
+permissions:
+  mlc_neb.command:
+    description: 允许使用 /neb 命令
+    default: op
+  mlc_neb.stats:
+    description: 允许查看 NEB 流量统计
+    default: op
+  mlc_neb.reload:
+    description: 允许重载 NEB 配置
+    default: op
+  mlc_neb.manage:
+    description: 允许启用/禁用玩家的 NEB 优化
+    default: op
