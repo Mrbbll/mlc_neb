@@ -87,15 +87,6 @@ public class NebConfig {
     );
 
     // ========================================================================
-    //  延迟区块缓存 (DCC) 设置
-    // ========================================================================
-
-    private boolean dccEnabled = true;
-    private int dccSizeLimit = 60;
-    private int dccDistance = 5;
-    private int dccTimeout = 60;
-
-    // ========================================================================
     //  调试
     // ========================================================================
 
@@ -156,11 +147,7 @@ public class NebConfig {
             applyDefaultBlacklist();
         }
 
-        // DCC
-        dccEnabled = cfg.getBoolean("chunk-cache.enabled", true);
-        dccSizeLimit = clamp(cfg.getInt("chunk-cache.size-limit", 60), 0, 500);
-        dccDistance = clamp(cfg.getInt("chunk-cache.distance", 5), 0, 16);
-        dccTimeout = clamp(cfg.getInt("chunk-cache.timeout-seconds", 60), 0, 600);
+        // DCC 已移除（纯 Paper 插件无法实现真正的延迟区块卸载）
 
         // 调试
         debugLog = cfg.getBoolean("debug.log", false);
@@ -284,10 +271,6 @@ public class NebConfig {
     public int getMaxPacketSize() { return maxPacketSize; }
     public boolean isCompatibleMode() { return compatibleMode; }
     public Set<String> getBlacklist() { return blacklist; }
-    public boolean isDccEnabled() { return dccEnabled; }
-    public int getDccSizeLimit() { return dccSizeLimit; }
-    public int getDccDistance() { return dccDistance; }
-    public int getDccTimeout() { return dccTimeout; }
     public boolean isDebugLog() { return debugLog; }
     public MlcNeb getPlugin() { return plugin; }
 

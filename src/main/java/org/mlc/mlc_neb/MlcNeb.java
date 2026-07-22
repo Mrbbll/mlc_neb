@@ -15,12 +15,12 @@
  *   经 Zstd 压缩后发送。客户端 NEB 模组自动解压→拆分→注入管道。
  *   原版玩家不受影响——数据包照常发送。
  *
- * 功能2 — 延迟区块缓存 (DCC)
- *   玩家移动时延迟"忘记区块"操作。纯服务端，对所有玩家生效。
- *
- * 功能3 — 流量统计
+ * 功能2 — 流量统计
  *   /neb stats — 显示每玩家和全局带宽使用情况
  *   /neb enable/disable <玩家> — 管理 NEB 玩家
+ *
+ * 注：原始 NeoForge 模组的"延迟区块缓存 (DCC)"在纯 Paper 插件层无法实现
+ *     （需 Mixin 拦截 ChunkMap.updateChunkTracking），本移植未包含该功能。
  *
  * ======== 握手检测 ========
  * 通过 Bukkit Plugin Message Channel "neb:handshake" 实现:
@@ -47,7 +47,6 @@ import org.bukkit.plugin.messaging.PluginMessageListener;
 import org.bukkit.scheduler.BukkitTask;
 import org.jetbrains.annotations.NotNull;
 import org.mlc.mlc_neb.aggregation.AggregationManager;
-import org.mlc.mlc_neb.chunk.DelayedChunkCache;
 import org.mlc.mlc_neb.command.NebCommand;
 import org.mlc.mlc_neb.handshake.HandshakeManager;
 import org.mlc.mlc_neb.stats.StatsManager;
@@ -111,23 +110,32 @@ public final class MlcNeb extends JavaPlugin implements Listener, PluginMessageL
         this.config = new NebConfig(this);
         getLogger().info("配置加载完成。");
 
-        // ---- 第2步: 注册插件消息通道 ----
+        // ---- 第2步: 初始化 NMS 反射 (在启用拦截前完成) ----
+        // 必须在任何 PacketInterceptor.inject 之前成功初始化, 否则拦截器会持续
+        // 延迟重试且永远拿不到 Channel。 失败时两者 available=false, 后续 enable
+        // 路径会安全跳过注入,玩家走原版直通(不踢线但无聚合)。
+        org.mlc.mlc_neb.network.NmsReflect.init();
+        org.mlc.mlc_neb.network.NebPayloadFactory.init();
+
+        // ---- 第3步: 注册插件消息通道(握手检测) ----
+        // neb:handshake 通道用于"探测客户端是否装了 NEB 模组"。
+        // 由本类实现 PluginMessageListener 接收客户端 ack。
         Messenger messenger = getServer().getMessenger();
         messenger.registerOutgoingPluginChannel(this, CHANNEL_HANDSHAKE);
         messenger.registerIncomingPluginChannel(this, CHANNEL_HANDSHAKE, this);
         getLogger().info("插件消息通道已注册: " + CHANNEL_HANDSHAKE);
 
-        // ---- 第3步: 初始化子系统 ----
+        // ---- 第4步: 初始化子系统 ----
         this.aggregationManager = new AggregationManager(this);
         this.handshakeManager = new HandshakeManager(this);
 
-        // 延迟区块缓存 — 纯服务端，对所有玩家生效
-        DelayedChunkCache.init(this);
+        // 延迟区块缓存 (DCC) 已移除：纯 Paper 插件无法拦截 ChunkMap.updateChunkTracking，
+        // 原实现的 onPlayerMove 只维护内存 Map 并不真正延迟"忘记区块"包，效果为空。
 
-        // 流量统计
+        // 流量统计(仅出站)
         StatsManager.init();
 
-        // ---- 第4步: 注册事件和命令 ----
+        // ---- 第5步: 注册事件和命令 ----
         getServer().getPluginManager().registerEvents(this, this);
 
         NebCommand nebCommand = new NebCommand(this);
@@ -137,14 +145,17 @@ public final class MlcNeb extends JavaPlugin implements Listener, PluginMessageL
             cmd.setTabCompleter(nebCommand);
         }
 
-        // ---- 第5步: 启动聚合刷新定时器 ----
+        // ---- 第6步: 启动聚合刷新定时器 ----
+        // 把毫秒间隔换算为 tick (1 tick = 50ms), 至少 1 tick。
+        // flushAllPlayers 在主线程执行, 遍历所有启用玩家调用 flushPlayer。
         long interval = Math.max(1, Math.round(config.getFlushIntervalMs() / 50.0));
         flushTask = Bukkit.getScheduler().runTaskTimer(
                 this, this::flushAllPlayers, interval, interval);
         getLogger().info("聚合刷新调度器已启动 (间隔: "
                 + config.getFlushIntervalMs() + "ms / " + interval + " ticks)");
 
-        // ---- 第6步: 对已在线玩家初始化 ----
+        // ---- 第7步: 对已在线玩家初始化 ----
+        // 应对本次启用即服务器重启/热重载时已有玩家在线的情况。
         for (Player player : Bukkit.getOnlinePlayers()) {
             onPlayerJoinInternal(player);
         }
@@ -168,8 +179,6 @@ public final class MlcNeb extends JavaPlugin implements Listener, PluginMessageL
         if (aggregationManager != null) {
             aggregationManager.shutdown();
         }
-
-        DelayedChunkCache.shutdown();
 
         // 取消所有等待中的握手
         for (UUID uuid : playerStates.keySet()) {
@@ -215,7 +224,6 @@ public final class MlcNeb extends JavaPlugin implements Listener, PluginMessageL
             state.cleanup();
         }
 
-        DelayedChunkCache.onPlayerQuit(player);
         StatsManager.removePlayer(uuid);
     }
 
@@ -280,11 +288,12 @@ public final class MlcNeb extends JavaPlugin implements Listener, PluginMessageL
     public void enableNebForPlayer(Player player, PlayerState state) {
         if (state.isNebEnabled()) return;
 
-        state.setNebEnabled(true);
-        aggregationManager.initCompressor(state);
-
-        // 注入 Netty 管道拦截器
+        // 先注入拦截器（注入成功才置标志，避免 flush 对未注入玩家空跑）。
+        // inject 内部会在 channel 未就绪时延迟重试，最终成功后才视作注入完成。
         org.mlc.mlc_neb.network.PacketInterceptor.inject(this, player, state);
+
+        aggregationManager.initCompressor(state);
+        state.setNebEnabled(true);
 
         if (config.isDebugLog()) {
             getLogger().info("玩家 " + player.getName() + " 已启用 NEB 优化。");
@@ -292,7 +301,7 @@ public final class MlcNeb extends JavaPlugin implements Listener, PluginMessageL
     }
 
     /**
-     * 禁用指定玩家的 NEB 优化（刷新缓冲、移除拦截器）。
+     * 禁用指定玩家的 NEB 优化（刷新缓冲、移除拦截器）。 幂等。
      */
     public void disableNebForPlayer(Player player) {
         PlayerState state = playerStates.get(player.getUniqueId());
@@ -331,9 +340,13 @@ public final class MlcNeb extends JavaPlugin implements Listener, PluginMessageL
         if (!players.isEmpty()) {
             getLogger().info("配置中 NEB 启用玩家 (" + players.size() + " 人):");
             for (String uuid : players) {
-                Player p = Bukkit.getPlayer(UUID.fromString(uuid));
-                String name = (p != null) ? p.getName() : "(离线)";
-                getLogger().info("  - " + name + " (" + uuid + ")");
+                try {
+                    Player p = Bukkit.getPlayer(UUID.fromString(uuid));
+                    String name = (p != null) ? p.getName() : "(离线)";
+                    getLogger().info("  - " + name + " (" + uuid + ")");
+                } catch (IllegalArgumentException e) {
+                    getLogger().warning("配置中 NEB 启用玩家 UUID 无效，已跳过: " + uuid);
+                }
             }
         }
     }

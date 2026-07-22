@@ -66,6 +66,10 @@ public class TimeWindowCounter {
      * @param bytes 传输的字节数
      */
     public void put(int bytes) {
+        // 以 50ms 为一个"桶"分组(约 1 tick)。 同一桶内累加字节。
+        // 读时统计 [now - windowSizeMs, now] 内所有桶之和,再除以窗口秒数得速率。
+        // 50ms 粒度在"显示给玩家的速率"上足够平滑, 且桶数量有限(2s 窗口=40 桶),
+        // 不会随时间无限增长(prune 清理过期桶)。
         long now = System.currentTimeMillis();
         long bucket = now / 50; // 50ms 桶（约 1 tick）
         prune(now);

@@ -38,13 +38,9 @@ public class StatsManager {
     private static final Map<UUID, StatsData> playerStats = new ConcurrentHashMap<>();
 
     // ---- 全局统计 ----
-    private static final AtomicLong globalInboundRaw = new AtomicLong();
-    private static final AtomicLong globalInboundBaked = new AtomicLong();
     private static final AtomicLong globalOutboundRaw = new AtomicLong();
     private static final AtomicLong globalOutboundBaked = new AtomicLong();
 
-    private static final TimeWindowCounter globalInSpeedRaw = new TimeWindowCounter(2000);
-    private static final TimeWindowCounter globalInSpeedBaked = new TimeWindowCounter(2000);
     private static final TimeWindowCounter globalOutSpeedRaw = new TimeWindowCounter(2000);
     private static final TimeWindowCounter globalOutSpeedBaked = new TimeWindowCounter(2000);
 
@@ -97,28 +93,6 @@ public class StatsManager {
         globalOutSpeedBaked.put((int) bytes);
     }
 
-    /** 记录入站（客户端→服务端）原始字节数。 */
-    public static void recordInboundRaw(UUID uuid, long bytes) {
-        StatsData data = playerStats.get(uuid);
-        if (data != null) {
-            data.inboundBytesRaw.addAndGet(bytes);
-            data.inboundSpeedRaw.put((int) bytes);
-        }
-        globalInboundRaw.addAndGet(bytes);
-        globalInSpeedRaw.put((int) bytes);
-    }
-
-    /** 记录入站（客户端→服务端）压缩后字节数。 */
-    public static void recordInboundBaked(UUID uuid, long bytes) {
-        StatsData data = playerStats.get(uuid);
-        if (data != null) {
-            data.inboundBytesBaked.addAndGet(bytes);
-            data.inboundSpeedBaked.put((int) bytes);
-        }
-        globalInboundBaked.addAndGet(bytes);
-        globalInSpeedBaked.put((int) bytes);
-    }
-
     // ========================================================================
     //  查询
     // ========================================================================
@@ -132,14 +106,10 @@ public class StatsManager {
     }
 
     // ---- 全局总计 ----
-    public static long getGlobalInboundRaw() { return globalInboundRaw.get(); }
-    public static long getGlobalInboundBaked() { return globalInboundBaked.get(); }
     public static long getGlobalOutboundRaw() { return globalOutboundRaw.get(); }
     public static long getGlobalOutboundBaked() { return globalOutboundBaked.get(); }
 
     // ---- 全局速度（字节/秒）----
-    public static double getGlobalInboundSpeedRaw() { return globalInSpeedRaw.averageIn1s(); }
-    public static double getGlobalInboundSpeedBaked() { return globalInSpeedBaked.averageIn1s(); }
     public static double getGlobalOutboundSpeedRaw() { return globalOutSpeedRaw.averageIn1s(); }
     public static double getGlobalOutboundSpeedBaked() { return globalOutSpeedBaked.averageIn1s(); }
 
@@ -153,14 +123,6 @@ public class StatsManager {
         return 100.0 * baked / raw;
     }
 
-    /** 返回全局入站压缩率。 */
-    public static double getGlobalInboundRatio() {
-        long raw = globalInboundRaw.get();
-        long baked = globalInboundBaked.get();
-        if (raw == 0) return 100.0;
-        return 100.0 * baked / raw;
-    }
-
     // ========================================================================
     //  重置
     // ========================================================================
@@ -168,9 +130,9 @@ public class StatsManager {
     /** 重置所有统计计数器。 */
     public static void resetAll() {
         playerStats.values().forEach(StatsData::reset);
-        globalInboundRaw.set(0);
-        globalInboundBaked.set(0);
         globalOutboundRaw.set(0);
         globalOutboundBaked.set(0);
+        globalOutSpeedRaw.reset();
+        globalOutSpeedBaked.reset();
     }
 }

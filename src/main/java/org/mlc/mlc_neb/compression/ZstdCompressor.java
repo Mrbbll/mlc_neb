@@ -131,7 +131,9 @@ public class ZstdCompressor implements AutoCloseable {
 
         ByteBuffer compressed;
         if (useContext) {
-            // 流式压缩（上下文复用）
+            // 流式压缩(上下文复用): EndDirective.FLUSH 表示"刷出一个完整帧并保留上下文字典"。
+            // 客户端 ZstdHelper.Context 同样用流式 + magicless,两端必须一致才能解压。
+            // 注意:不使用 EndDirective.END,否则上下文字典会被重置,失去复用。
             int maxDstSize = (int) Zstd.compressBound(rawBuffer.remaining());
             ByteBuffer dst = ByteBuffer.allocateDirect(maxDstSize);
             compressCtx.compressDirectByteBufferStream(
@@ -139,7 +141,7 @@ public class ZstdCompressor implements AutoCloseable {
             dst.flip();
             compressed = dst;
         } else {
-            // 一次性压缩（无上下文共享）
+            // 一次性压缩(无上下文共享): 等价客户端 useContext=false 分支。
             compressed = compressCtx.compress(rawBuffer);
         }
 

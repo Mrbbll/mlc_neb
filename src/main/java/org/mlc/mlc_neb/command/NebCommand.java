@@ -33,7 +33,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.mlc.mlc_neb.MlcNeb;
 import org.mlc.mlc_neb.NebConfig;
-import org.mlc.mlc_neb.chunk.DelayedChunkCache;
 import org.mlc.mlc_neb.stats.StatsData;
 import org.mlc.mlc_neb.stats.StatsManager;
 import org.mlc.mlc_neb.util.PlayerState;
@@ -165,23 +164,18 @@ public class NebCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage("§6═════ NEB 统计: §e" + target.getName() + " §6═════");
         sender.sendMessage("§7NEB 状态: "
                 + (state != null && state.isNebEnabled() ? "§a✓ 已启用" : "§c✗ 未启用"));
-        sender.sendMessage("§7DCC 缓存区块: §f" + DelayedChunkCache.getCacheSize(target));
 
         if (stats != null && state != null) {
-            sender.sendMessage("§b--- 实际传输（线字节）---");
+            sender.sendMessage("§b--- 实际传输（线字节/出站）---");
             sender.sendMessage(String.format(
-                    "  §7↓ 入站  §f%-10s  §7总计 §f%-12s    §7↑ 出站  §f%-10s  §7总计 §f%s",
-                    formatSpeed((long) stats.inboundSpeedBaked.averageIn1s()),
-                    formatSize(stats.inboundBytesBaked.get()),
+                    "  §7↑ 速度 §f%-10s  §7总计 §f%s",
                     formatSpeed((long) stats.outboundSpeedBaked.averageIn1s()),
                     formatSize(stats.outboundBytesBaked.get())
             ));
 
-            sender.sendMessage("§b--- 原始负载（压缩前）---");
+            sender.sendMessage("§b--- 原始负载（压缩前/出站）---");
             sender.sendMessage(String.format(
-                    "  §7↓ 入站  §f%-10s  §7总计 §f%-12s    §7↑ 出站  §f%-10s  §7总计 §f%s",
-                    formatSpeed((long) stats.inboundSpeedRaw.averageIn1s()),
-                    formatSize(stats.inboundBytesRaw.get()),
+                    "  §7↑ 速度 §f%-10s  §7总计 §f%s",
                     formatSpeed((long) stats.outboundSpeedRaw.averageIn1s()),
                     formatSize(stats.outboundBytesRaw.get())
             ));
@@ -208,26 +202,21 @@ public class NebCommand implements CommandExecutor, TabCompleter {
 
         sender.sendMessage("§6═════ NEB 全局统计 §6═════");
         sender.sendMessage("§7在线玩家: §f" + totalOnline + "  §7NEB 启用: §f" + nebCount);
-        sender.sendMessage("§7DCC 总缓存区块: §f" + DelayedChunkCache.getTotalCacheSize());
         sender.sendMessage("§7聚合: §f"
                 + (config.isAggregationEnabled() ? "§a启用" : "§c禁用")
                 + "  §7刷新间隔: §f" + config.getFlushIntervalMs() + "ms"
                 + "  §7压缩: §fZstd 级别 " + config.getCompressionLevel());
 
-        sender.sendMessage("§b--- 实际传输（线字节）---");
+        sender.sendMessage("§b--- 实际传输（线字节/出站）---");
         sender.sendMessage(String.format(
-                "  §7↓ 入站  §f%-10s  §7总计 §f%-12s    §7↑ 出站  §f%-10s  §7总计 §f%s",
-                formatSpeed((long) StatsManager.getGlobalInboundSpeedBaked()),
-                formatSize(StatsManager.getGlobalInboundBaked()),
+                "  §7↑ 速度 §f%-10s  §7总计 §f%s",
                 formatSpeed((long) StatsManager.getGlobalOutboundSpeedBaked()),
                 formatSize(StatsManager.getGlobalOutboundBaked())
         ));
 
-        sender.sendMessage("§b--- 原始负载（压缩前）---");
+        sender.sendMessage("§b--- 原始负载（压缩前/出站）---");
         sender.sendMessage(String.format(
-                "  §7↓ 入站  §f%-10s  §7总计 §f%-12s    §7↑ 出站  §f%-10s  §7总计 §f%s",
-                formatSpeed((long) StatsManager.getGlobalInboundSpeedRaw()),
-                formatSize(StatsManager.getGlobalInboundRaw()),
+                "  §7↑ 速度 §f%-10s  §7总计 §f%s",
                 formatSpeed((long) StatsManager.getGlobalOutboundSpeedRaw()),
                 formatSize(StatsManager.getGlobalOutboundRaw())
         ));
@@ -242,10 +231,9 @@ public class NebCommand implements CommandExecutor, TabCompleter {
             for (Player p : Bukkit.getOnlinePlayers()) {
                 PlayerState state = plugin.getPlayerState(p);
                 if (state != null && state.isNebEnabled()) {
-                    int bufSize = state.getPacketBuffer().size();
                     sender.sendMessage(String.format(
                             "  §a%s §7缓冲中: §f%d 包",
-                            p.getName(), bufSize));
+                            p.getName(), state.getBufferedCount()));
                 }
             }
         }
@@ -266,7 +254,13 @@ public class NebCommand implements CommandExecutor, TabCompleter {
                     + " config.yml 中的 neb-enabled-players 添加。");
         } else {
             for (String uuidStr : enabledPlayers) {
-                UUID uuid = UUID.fromString(uuidStr);
+                UUID uuid;
+                try {
+                    uuid = UUID.fromString(uuidStr);
+                } catch (IllegalArgumentException e) {
+                    sender.sendMessage("  §c(无效 UUID) §f" + uuidStr);
+                    continue;
+                }
                 Player p = Bukkit.getPlayer(uuid);
                 String name = (p != null) ? p.getName() : "§7(离线)§f";
                 PlayerState state = (p != null) ? plugin.getPlayerState(p) : null;
@@ -369,6 +363,8 @@ public class NebCommand implements CommandExecutor, TabCompleter {
         }
 
         sender.sendMessage("§aNEB 配置已重载。");
+        sender.sendMessage("§7注: Zstd 压缩级别/上下文窗口的变更不会影响已启用 NEB 的在线玩家"
+                + "（需对其 /neb disable 后再 enable 才重建压缩上下文）。");
         return true;
     }
 

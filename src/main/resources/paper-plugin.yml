@@ -15,7 +15,7 @@
 name: mlc_neb
 version: '1.0-SNAPSHOT'
 main: org.mlc.mlc_neb.MlcNeb
-api-version: '1.21'
+api-version: '1.21.11'
 authors: [ Mr_bl ]
 description: "网络带宽优化插件，NEB Paper 移植版。聚合+Zstd压缩、延迟区块缓存、流量统计。"
 

@@ -25,12 +25,6 @@ public class StatsData {
 
     // ---- 累计字节总计 ----
 
-    /** 入站原始字节（解压前/线字节）。 */
-    public final AtomicLong inboundBytesRaw = new AtomicLong();
-
-    /** 入站实际字节（解压后/实际包数据）。 */
-    public final AtomicLong inboundBytesBaked = new AtomicLong();
-
     /** 出站原始字节（压缩前/实际包数据）。 */
     public final AtomicLong outboundBytesRaw = new AtomicLong();
 
@@ -38,12 +32,6 @@ public class StatsData {
     public final AtomicLong outboundBytesBaked = new AtomicLong();
 
     // ---- 滑动速度窗口 ----
-
-    /** 入站原始传输速度（字节/秒，2秒窗口）。 */
-    public final TimeWindowCounter inboundSpeedRaw = new TimeWindowCounter(2000);
-
-    /** 入站实际传输速度（字节/秒，2秒窗口）。 */
-    public final TimeWindowCounter inboundSpeedBaked = new TimeWindowCounter(2000);
 
     /** 出站原始传输速度（字节/秒，2秒窗口）。 */
     public final TimeWindowCounter outboundSpeedRaw = new TimeWindowCounter(2000);
@@ -57,12 +45,8 @@ public class StatsData {
 
     /** 重置该玩家的所有计数器。 */
     public void reset() {
-        inboundBytesRaw.set(0);
-        inboundBytesBaked.set(0);
         outboundBytesRaw.set(0);
         outboundBytesBaked.set(0);
-        inboundSpeedRaw.reset();
-        inboundSpeedBaked.reset();
         outboundSpeedRaw.reset();
         outboundSpeedBaked.reset();
     }
@@ -73,16 +57,6 @@ public class StatsData {
     public double getOutboundRatio() {
         long raw = outboundBytesRaw.get();
         long baked = outboundBytesBaked.get();
-        if (raw == 0) return 100.0;
-        return 100.0 * baked / raw;
-    }
-
-    /**
-     * 返回入站压缩率。
-     */
-    public double getInboundRatio() {
-        long raw = inboundBytesRaw.get();
-        long baked = inboundBytesBaked.get();
         if (raw == 0) return 100.0;
         return 100.0 * baked / raw;
     }
